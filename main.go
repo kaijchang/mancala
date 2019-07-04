@@ -1,10 +1,14 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
-const startingSeeds uint = 3 // 3 stones / cell
+const startingSeeds uint = 4 // 4 seeds / cell
 const fieldSize = 6 // 6 cells / direction
 const c, f uint = 1, 2  // 1 = (c)lose store, 2 = (f)ar store, 0 = not a store
+var simulationGroup sync.WaitGroup
 
 // mancala board as a linked list
 type Cell struct {
@@ -79,9 +83,11 @@ func newField() Field {
 
 func (field Field) runSim(origin *Cell, player uint, ch chan Result) {
 	ch <- Result{ origin, field, origin.sow(player) }
+	simulationGroup.Done()
 }
 
 func (field Field) runSims(player uint, ch chan Result) {
+	simulationGroup.Add(fieldSize)
 	for i := 0; i < fieldSize; i++ {
 		// clone the field
 		simField := field.clone()
@@ -171,6 +177,7 @@ func main() {
 	field := newField()
 	ch := make(chan Result, fieldSize)
 	go field.runSims(c, ch)
+	simulationGroup.Wait() // wait for simulations to finish
 	for result := range ch {
 		fmt.Println(result)
 		if len(ch) == 0 {
