@@ -4,7 +4,7 @@ import "fmt"
 
 const startingSeeds uint = 3 // 3 stones / cell
 const fieldSize = 6 // 6 cells / direction
-const c, f uint = 1, 2  // 0 = not a store
+const c, f uint = 1, 2  // 1 = (c)lose store, 2 = (f)ar store, 0 = not a store
 
 // mancala board as a linked list
 type Cell struct {
@@ -16,8 +16,8 @@ type Cell struct {
 // recursive sow from an origin, returns whether player gets an extra turn or not
 // untested
 func (origin *Cell) sow(player uint) bool {
-	// end if the cell is empty
-	if origin.value == 0 {
+	// end if the cell only has the seed you just put in
+	if origin.value == 1 {
 		return false
 	}
 	// pick up all the stones
@@ -27,6 +27,8 @@ func (origin *Cell) sow(player uint) bool {
 	for {
 		// skip opponent's store
 		if cur.store != 0 && cur.store != player {
+			// move on
+			cur = cur.next
 			continue
 		}
 		// drop a seed
@@ -38,7 +40,7 @@ func (origin *Cell) sow(player uint) bool {
 			if cur.store == player {
 				return true
 			}
-			cur.sow(player)
+			return cur.sow(player)
 		}
 		// move on
 		cur = cur.next
@@ -73,37 +75,48 @@ func newField() (*Cell, *Cell) {
 func printField(origin *Cell) {
 	temp, closeToFar, farToClose := make([]*Cell, 0, fieldSize), make([]*Cell, 0, fieldSize), make([]*Cell, 0, fieldSize)
 	var closeBank, farBank *Cell
-	var to uint = 0
+	var to, tempDirection uint // the to variable keeps track of which direction we're going.
+	                           // the tempDirection variable keeps track of which direction we were going originally
+	                           // so we know where to append the leftover cells from when we didn't know the direction yet
 	cur := origin
 	for i := 0; i < fieldSize * 2 + 2; i++ {
 		if cur.store != 0 {
 			if cur.store == 1 {
-				farToClose = temp
 				closeBank = cur
 			} else if cur.store == 2 {
-				closeToFar = temp
 				farBank = cur
 			}
 			to = cur.store
+			if tempDirection == 0 {
+				tempDirection = cur.store
+			}
 		} else {
 			switch to {
-				case 0:
+				case 0: // we don't know the direction yet
 					temp = append(temp, cur)
-				case 1:
-					farToClose = append(farToClose, cur)
-				case 2:
+				case 1: // close => far row
 					closeToFar = append(closeToFar, cur)
+				case 2: // far => close row
+					farToClose = append(farToClose, cur)
 			}
 		}
 		cur = cur.next
 	}
 
+	// append leftover cells
+	if tempDirection == 1 {
+		farToClose = append(farToClose, temp...)
+	} else if tempDirection == 2 {
+		closeToFar = append(closeToFar, temp...)
+	}
+
+	// make list of values for cleaner string formatting
 	vals := make([]interface{}, 0, 14)
 
 	vals = append(vals, farBank.value)
 	for i := 0; i < fieldSize; i++ {
 		vals = append(vals, farToClose[i].value)
-		vals = append(vals, closeToFar[i].value)
+		vals = append(vals, closeToFar[fieldSize - i - 1].value)
 	}
 	vals = append(vals, closeBank.value)
 
@@ -124,5 +137,7 @@ ____
 
 func main() {
 	closeStore, _ := newField()
+	printField(closeStore)
+	fmt.Println(closeStore.next.sow(c)) // start sowing at first cell past close store
 	printField(closeStore)
 }
