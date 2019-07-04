@@ -14,7 +14,6 @@ type Cell struct {
 }
 
 // recursive sow from an origin, returns whether player gets an extra turn or not
-// untested
 func (origin *Cell) sow(player uint) bool {
 	// end if the cell only has the seed you just put in
 	if origin.value == 1 {
