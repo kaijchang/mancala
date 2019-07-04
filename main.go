@@ -13,7 +13,17 @@ type Cell struct {
 	next *Cell
 }
 
-// recursive sow from an origin, returns whether player gets an extra turn or not
+// map to the stores for convenience & organization
+type Field map[uint]*Cell
+
+// simulation result
+type Result struct {
+	cell *Cell
+	field Field
+	extraTurn bool
+}
+
+// recursive sow from an origin
 func (origin *Cell) sow(player uint) bool {
 	// pick up all the stones
 	hand := origin.value
@@ -46,80 +56,94 @@ func (origin *Cell) sow(player uint) bool {
 	}
 }
 
-// returns a new field with two entry points at either store
-func newField() (*Cell, *Cell) {
+// returns a new field
+func newField() Field {
 	closeStore, farStore := &Cell{ store: c }, &Cell{ store: f }
-	var cur, next *Cell
-	cur = closeStore
+	cur := closeStore
 	// close => far row
 	for i := 0; i < fieldSize; i++ {
-		next = &Cell { value: startingSeeds }
-		cur.next = next
-		cur = next
+		cur.next = &Cell { value: startingSeeds }
+		cur = cur.next
 	}
 	// insert the far store
 	cur.next = farStore
 	cur = farStore
 	// far => close row
 	for i := 0; i < fieldSize; i++ {
-		next = &Cell { value: startingSeeds }
-		cur.next = next
-		cur = next
+		cur.next = &Cell { value: startingSeeds }
+		cur = cur.next
 	}
 	cur.next = closeStore // close the loop
-	return closeStore, farStore
+	return Field{ c: closeStore, f: farStore }
 }
 
-// prints the whole field from any origin
-func printField(origin *Cell) {
-	temp, closeToFar, farToClose := make([]*Cell, 0, fieldSize), make([]*Cell, 0, fieldSize), make([]*Cell, 0, fieldSize)
-	var closeBank, farBank *Cell
-	var to, tempDirection uint // the to variable keeps track of which direction we're going.
-	                           // the tempDirection variable keeps track of which direction we were going originally
-	                           // so we know where to append the leftover cells from when we didn't know the direction yet
-	cur := origin
-	for i := 0; i < fieldSize * 2 + 2; i++ {
-		if cur.store != 0 {
-			if cur.store == 1 {
-				closeBank = cur
-			} else if cur.store == 2 {
-				farBank = cur
-			}
-			to = cur.store
-			if tempDirection == 0 {
-				tempDirection = cur.store
-			}
-		} else {
-			switch to {
-				case 0: // we don't know the direction yet
-					temp = append(temp, cur)
-				case 1: // close => far row
-					closeToFar = append(closeToFar, cur)
-				case 2: // far => close row
-					farToClose = append(farToClose, cur)
-			}
+func (field Field) runSim(origin *Cell, player uint, ch chan Result) {
+	ch <- Result{ origin, field, origin.sow(player) }
+}
+
+func (field Field) runSims(player uint, ch chan Result) {
+	for i := 0; i < fieldSize; i++ {
+		// clone the field
+		simField := field.clone()
+		cur := simField[player].next
+		// advance to the right cell
+		for j := 0; j < i; j++ {
+			cur = cur.next
 		}
+		go simField.runSim(cur, player, ch)
+	}
+}
+
+// clones field to allow for multiple simulations on the same board state
+func (field Field) clone() Field {
+	closeStore, farStore := &Cell{ value: field[c].value, store: field[c].store }, &Cell{ value: field[f].value, store: field[f].store }
+	oldCur, newCur := field[c], closeStore
+	// close => far row
+	for i := 0; i < fieldSize; i++ {
+		newCur.next = &Cell { value: oldCur.next.value, store: oldCur.next.store }
+		newCur = newCur.next
+		oldCur = oldCur.next
+	}
+	// insert the far store
+	newCur.next = farStore
+	newCur = farStore
+	// far => close row
+	for i := 0; i < fieldSize; i++ {
+		newCur.next = &Cell { value: oldCur.next.value, store: oldCur.next.store }
+		newCur = newCur.next
+		oldCur = oldCur.next
+	}
+	newCur.next = closeStore // close the loop
+	return Field{ c: closeStore, f: farStore }
+}
+
+
+// formats the field into a readable format
+func (field Field) String() string {
+	// iterate through linked list to grab values
+	closeToFar, farToClose := make([]*Cell, 0, fieldSize), make([]*Cell, 0, fieldSize)
+	cur := field[c].next
+	for i := 0; i < fieldSize; i++ {
+		closeToFar = append(closeToFar, cur)
+		cur = cur.next
+	}
+	cur = field[f].next
+	for i := 0; i < fieldSize; i++ {
+		farToClose = append(farToClose, cur)
 		cur = cur.next
 	}
 
-	// append leftover cells
-	if tempDirection == 1 {
-		farToClose = append(farToClose, temp...)
-	} else if tempDirection == 2 {
-		closeToFar = append(closeToFar, temp...)
-	}
-
 	// make list of values for cleaner string formatting
-	vals := make([]interface{}, 0, 14)
+	vals := make([]interface{}, 0, 2 * fieldSize + 2)
 
-	vals = append(vals, farBank.value)
+	vals = append(vals, field[f].value)
 	for i := 0; i < fieldSize; i++ {
 		vals = append(vals, farToClose[i].value)
 		vals = append(vals, closeToFar[fieldSize - i - 1].value)
 	}
-	vals = append(vals, closeBank.value)
+	vals = append(vals, field[c].value)
 
-	fmt.Printf(`
+	return fmt.Sprintf(`
   %v
 ____
 |%v|%v|
@@ -134,9 +158,23 @@ ____
 `, vals...)
 }
 
+// formats the result into a readable format
+func (result Result) String() string {
+	return fmt.Sprintf(`
+Simulation Result:
+Board State: %v
+Extra Turn: %v
+`, result.field, result.extraTurn)
+}
+
 func main() {
-	closeStore, _ := newField()
-	printField(closeStore)
-	fmt.Println(closeStore.next.sow(c)) // start sowing at first cell past close store
-	printField(closeStore)
+	field := newField()
+	ch := make(chan Result, fieldSize)
+	go field.runSims(c, ch)
+	for result := range ch {
+		fmt.Println(result)
+		if len(ch) == 0 {
+			break
+		}
+	}
 }
